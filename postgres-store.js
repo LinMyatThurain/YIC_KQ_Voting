@@ -46,23 +46,36 @@ export function createPostgresVoteStore(connectionString = process.env.DATABASE_
       });
     },
 
-    // Voting state stored in settings.key = 'voting' with value 'true' or 'false'
+    // Voting state is persisted in the settings row so all pages share one clock.
     getVotingState() {
       return withReady(async () => {
-        const result = await pool.query("SELECT value FROM settings WHERE key = 'voting'");
-        if (!result.rows[0]) return false;
-        return result.rows[0].value === 'true';
+        const result = await pool.query(`
+          SELECT value, started_at AS "startedAt", state_version AS "stateVersion"
+          FROM settings WHERE key = 'voting'
+        `);
+        const state = result.rows[0];
+        return {
+          voting: state.value === 'true',
+          startedAt: state.startedAt ? new Date(state.startedAt).toISOString() : null,
+          stateVersion: Number(state.stateVersion || 0)
+        };
       });
     },
 
     setVotingState(enabled = false) {
       return withReady(async () => {
-        const val = enabled ? 'true' : 'false';
+        const current = await pool.query("SELECT value FROM settings WHERE key = 'voting'");
+        const currentlyOpen = current.rows[0]?.value === 'true';
+        if (currentlyOpen === enabled) return this.getVotingState();
         await pool.query(`
-          INSERT INTO settings (key, value) VALUES ('voting', $1)
-          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-        `, [val]);
-        return enabled;
+          UPDATE settings
+          SET value = $1, started_at = $2, state_version = state_version + 1
+          WHERE key = 'voting'
+        `, [
+          enabled ? 'true' : 'false',
+          enabled ? new Date() : null
+        ]);
+        return this.getVotingState();
       });
     },
     createCandidate(candidate = {}) {
@@ -204,14 +217,21 @@ async function initialize(pool) {
     );
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
+      value TEXT NOT NULL,
+      started_at TIMESTAMPTZ,
+      state_version INTEGER NOT NULL DEFAULT 0 CHECK (state_version >= 0)
     );
+  `);
+  await pool.query(`
+    ALTER TABLE settings
+      ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS state_version INTEGER NOT NULL DEFAULT 0
   `);
 
   // Ensure a default voting state exists (closed by default)
   await pool.query(`
-    INSERT INTO settings (key, value)
-    VALUES ('voting', 'false')
+    INSERT INTO settings (key, value, started_at, state_version)
+    VALUES ('voting', 'false', NULL, 0)
     ON CONFLICT (key) DO NOTHING
   `);
   const count = await pool.query('SELECT COUNT(*)::int AS count FROM candidates');

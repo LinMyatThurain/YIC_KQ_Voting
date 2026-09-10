@@ -49,6 +49,109 @@ test('seeds the editable candidate catalog from the current candidates', () => {
   store.close();
 });
 
+test('persists idempotent voting transitions with synchronized timestamps', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'yic-voting-state-'));
+  const databasePath = join(directory, 'votes.db');
+
+  try {
+    const firstStore = createVoteStore(databasePath);
+    assert.deepEqual(firstStore.getVotingState(), {
+      voting: false,
+      startedAt: null,
+      stateVersion: 0
+    });
+    const started = firstStore.setVotingState(true);
+    assert.equal(started.voting, true);
+    assert.match(started.startedAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(started.stateVersion, 1);
+    assert.deepEqual(firstStore.setVotingState(true), started);
+    const stopped = firstStore.setVotingState(false);
+    assert.deepEqual(stopped, {
+      voting: false,
+      startedAt: null,
+      stateVersion: 2
+    });
+    assert.deepEqual(firstStore.setVotingState(false), stopped);
+    firstStore.close();
+
+    const secondStore = createVoteStore(databasePath);
+    assert.deepEqual(secondStore.getVotingState(), stopped);
+    secondStore.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('returns versioned voting state and enforces closed submissions', async () => {
+  const store = createVoteStore(':memory:');
+  const server = createServer(store);
+  await new Promise((resolve) => server.listen(0, resolve));
+  const { port } = server.address();
+
+  try {
+    const initialResponse = await fetch(`http://localhost:${port}/api/voting`);
+    assert.equal(initialResponse.status, 200);
+    assert.deepEqual(await initialResponse.json(), {
+      voting: false,
+      startedAt: null,
+      stateVersion: 0
+    });
+
+    const unauthorized = await fetch(`http://localhost:${port}/api/admin/voting`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'start' })
+    });
+    assert.equal(unauthorized.status, 401);
+
+    const startResponse = await fetch(`http://localhost:${port}/api/admin/voting`, {
+      method: 'POST',
+      headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'start' })
+    });
+    assert.equal(startResponse.status, 200);
+    const started = await startResponse.json();
+    assert.equal(started.voting, true);
+    assert.equal(started.stateVersion, 1);
+    assert.match(started.startedAt, /^\d{4}-\d{2}-\d{2}T/);
+
+    const repeatedStart = await fetch(`http://localhost:${port}/api/admin/voting`, {
+      method: 'POST',
+      headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'start' })
+    });
+    assert.deepEqual(await repeatedStart.json(), started);
+
+    const invalidAction = await fetch(`http://localhost:${port}/api/admin/voting`, {
+      method: 'POST',
+      headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'pause' })
+    });
+    assert.equal(invalidAction.status, 400);
+
+    const stopResponse = await fetch(`http://localhost:${port}/api/admin/voting`, {
+      method: 'POST',
+      headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'stop' })
+    });
+    assert.deepEqual(await stopResponse.json(), {
+      voting: false,
+      startedAt: null,
+      stateVersion: 2
+    });
+
+    const blockedVote = await fetch(`http://localhost:${port}/api/votes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(validVote('closed@example.com'))
+    });
+    assert.equal(blockedVote.status, 403);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    store.close();
+  }
+});
+
 test('validates votes against active catalog entries', () => {
   const store = createVoteStore(':memory:');
   const added = store.createCandidate({

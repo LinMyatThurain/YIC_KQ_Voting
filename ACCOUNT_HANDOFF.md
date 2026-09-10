@@ -40,7 +40,7 @@ The application automatically creates these tables on its first connection:
 
 - `candidates`
 - `votes`
-- `settings` (including the persisted voting open/closed state)
+- `settings` (including the persisted voting state, server start timestamp, and state version)
 
 It also seeds the default candidate catalog if the catalog is empty.
 
@@ -79,8 +79,9 @@ Open the Render URL from a phone using mobile data and verify:
 5. Entering `admin@yic` opens the admin results page.
 6. Candidate management can add, edit, and permanently delete candidates.
 7. The admin panel can start and stop voting.
-8. The voting page shows a 10-second countdown when voting starts and blocks submissions while voting is stopped.
-9. Results show the submitted vote.
+8. Pages already open when voting starts show a synchronized 10-second countdown; late-joining pages skip it.
+9. The voting page blocks submissions while voting is stopped.
+10. Results show the submitted vote.
 
 ## 5. Updating the project later
 

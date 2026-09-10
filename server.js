@@ -88,13 +88,20 @@ function createSettingsTable(database) {
   database.exec(`
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
+      value TEXT NOT NULL,
+      started_at TEXT,
+      state_version INTEGER NOT NULL DEFAULT 0 CHECK (state_version >= 0)
     )
   `);
+  const columns = new Set(database.prepare('PRAGMA table_info(settings)').all().map((column) => column.name));
+  if (!columns.has('started_at')) database.exec('ALTER TABLE settings ADD COLUMN started_at TEXT');
+  if (!columns.has('state_version')) database.exec('ALTER TABLE settings ADD COLUMN state_version INTEGER NOT NULL DEFAULT 0');
   database.prepare(`
-    INSERT INTO settings (key, value)
-    VALUES ('voting', 'false')
-    ON CONFLICT(key) DO NOTHING
+    INSERT INTO settings (key, value, started_at, state_version)
+    VALUES ('voting', 'false', NULL, 0)
+    ON CONFLICT(key) DO UPDATE SET
+      started_at = COALESCE(settings.started_at, excluded.started_at),
+      state_version = COALESCE(settings.state_version, excluded.state_version)
   `).run();
 }
 
@@ -209,14 +216,29 @@ export function createVoteStore(databasePath = DATABASE_PATH) {
       }));
     },
     getVotingState() {
-      return database.prepare("SELECT value FROM settings WHERE key = 'voting'").get().value === 'true';
+      const state = database.prepare(`
+        SELECT value, started_at AS startedAt, state_version AS stateVersion
+        FROM settings WHERE key = 'voting'
+      `).get();
+      return {
+        voting: state.value === 'true',
+        startedAt: state.startedAt ? new Date(`${state.startedAt}Z`).toISOString() : null,
+        stateVersion: Number(state.stateVersion || 0)
+      };
     },
     setVotingState(enabled = false) {
+      const current = database.prepare(`
+        SELECT value, started_at AS startedAt, state_version AS stateVersion
+        FROM settings WHERE key = 'voting'
+      `).get();
+      const currentlyOpen = current.value === 'true';
+      if (currentlyOpen === enabled) return this.getVotingState();
       database.prepare(`
-        INSERT INTO settings (key, value) VALUES ('voting', ?)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `).run(enabled ? 'true' : 'false');
-      return enabled;
+        UPDATE settings
+        SET value = ?, started_at = ?, state_version = state_version + 1
+        WHERE key = 'voting'
+      `).run(enabled ? 'true' : 'false', enabled ? new Date().toISOString().replace('Z', '') : null);
+      return this.getVotingState();
     },
     createCandidate(candidate = {}) {
       const name = String(candidate.name || '').trim();
@@ -576,7 +598,7 @@ export function createServer(store = process.env.DATABASE_URL ? createPostgresVo
 
     // Public voting state endpoint (used by voting page to know if voting is open)
     if (request.method === 'GET' && url.pathname === '/api/voting') {
-      sendJson(response, 200, { voting: await store.getVotingState() });
+      sendJson(response, 200, await store.getVotingState());
       return;
     }
 
@@ -594,13 +616,11 @@ export function createServer(store = process.env.DATABASE_URL ? createPostgresVo
         const body = await readJson(request);
         const action = String(body.action || '').toLowerCase();
         if (action === 'start') {
-          await store.setVotingState(true);
-          sendJson(response, 200, { voting: true });
+          sendJson(response, 200, await store.setVotingState(true));
           return;
         }
         if (action === 'stop') {
-          await store.setVotingState(false);
-          sendJson(response, 200, { voting: false });
+          sendJson(response, 200, await store.setVotingState(false));
           return;
         }
         sendJson(response, 400, { error: 'Invalid action. Use "start" or "stop".' });
@@ -646,8 +666,8 @@ export function createServer(store = process.env.DATABASE_URL ? createPostgresVo
 
     try {
       const isTestAdmin = isTestAdminAuthorized(request);
-      const votingOpen = await store.getVotingState();
-      if (!votingOpen && !isTestAdmin) {
+      const votingState = await store.getVotingState();
+      if (!votingState.voting && !isTestAdmin) {
         sendJson(response, 403, { error: 'Voting is not open.' });
         return;
       }
