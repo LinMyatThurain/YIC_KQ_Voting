@@ -45,6 +45,26 @@ export function createPostgresVoteStore(connectionString = process.env.DATABASE_
         return result.rows.map(serializeCandidate);
       });
     },
+
+    // Voting state stored in settings.key = 'voting' with value 'true' or 'false'
+    getVotingState() {
+      return withReady(async () => {
+        const result = await pool.query("SELECT value FROM settings WHERE key = 'voting'");
+        if (!result.rows[0]) return false;
+        return result.rows[0].value === 'true';
+      });
+    },
+
+    setVotingState(enabled = false) {
+      return withReady(async () => {
+        const val = enabled ? 'true' : 'false';
+        await pool.query(`
+          INSERT INTO settings (key, value) VALUES ('voting', $1)
+          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+        `, [val]);
+        return enabled;
+      });
+    },
     createCandidate(candidate = {}) {
       return withReady(async () => {
         const name = String(candidate.name || '').trim();
@@ -182,6 +202,17 @@ async function initialize(pool) {
       ged_queen TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
+
+  // Ensure a default voting state exists (closed by default)
+  await pool.query(`
+    INSERT INTO settings (key, value)
+    VALUES ('voting', 'false')
+    ON CONFLICT (key) DO NOTHING
   `);
   const count = await pool.query('SELECT COUNT(*)::int AS count FROM candidates');
   if (count.rows[0].count === 0) {

@@ -69,6 +69,15 @@
         <p><strong>Danger zone:</strong> permanently delete all recorded vote submissions. The candidate catalog will be preserved.</p>
         <button class="danger-button" id="clear-votes-button" type="button">Delete all vote data</button>
       </section>
+      <section class="panel" style="margin:12px 0; display:flex; gap:10px; align-items:center;">
+        <div>
+          <strong>Voting state:</strong> <span id="voting-state">unknown</span>
+        </div>
+        <div style="margin-left:auto">
+          <button id="start-voting" class="manage-candidates-button" type="button">Start voting</button>
+          <button id="stop-voting" class="manage-candidates-button" type="button">Stop voting</button>
+        </div>
+      </section>
       <section class="results">
         <div class="panel"><div class="panel-heading"><h2>HND King votes</h2><span class="stat" id="hnd-king-count">0 candidates</span></div><div id="hnd-king-results" class="empty">Loading...</div></div>
         <div class="panel"><div class="panel-heading"><h2>HND Queen votes</h2><span class="stat" id="hnd-queen-count">0 candidates</span></div><div id="hnd-queen-results" class="empty">Loading...</div></div>
@@ -222,9 +231,59 @@
         }
       });
 
+      // Voting control buttons
+      const votingStateEl = document.querySelector('#voting-state');
+      const startVotingButton = document.querySelector('#start-voting');
+      const stopVotingButton = document.querySelector('#stop-voting');
+
+      async function fetchVotingState() {
+        try {
+          const r = await fetch('/api/voting');
+          const data = await r.json();
+          votingStateEl.textContent = data.voting ? 'OPEN' : 'CLOSED';
+          startVotingButton.disabled = data.voting;
+          stopVotingButton.disabled = !data.voting;
+        } catch (e) {
+          votingStateEl.textContent = 'unknown';
+        }
+      }
+
+      startVotingButton.addEventListener('click', async () => {
+        startVotingButton.disabled = true;
+        try {
+          const response = await fetch('/api/admin/voting', { method: 'POST', headers: bearerHeaders(true), body: JSON.stringify({ action: 'start' }) });
+          const json = await response.json();
+          if (!response.ok) throw new Error(json.error || 'Unable to start voting.');
+          votingStateEl.textContent = json.voting ? 'OPEN' : 'CLOSED';
+          stopVotingButton.disabled = !json.voting;
+          await loadResults();
+        } catch (err) {
+          status.textContent = err.message;
+        } finally {
+          await fetchVotingState();
+        }
+      });
+
+      stopVotingButton.addEventListener('click', async () => {
+        stopVotingButton.disabled = true;
+        try {
+          const response = await fetch('/api/admin/voting', { method: 'POST', headers: bearerHeaders(true), body: JSON.stringify({ action: 'stop' }) });
+          const json = await response.json();
+          if (!response.ok) throw new Error(json.error || 'Unable to stop voting.');
+          votingStateEl.textContent = json.voting ? 'OPEN' : 'CLOSED';
+          startVotingButton.disabled = json.voting;
+          await loadResults();
+        } catch (err) {
+          status.textContent = err.message;
+        } finally {
+          await fetchVotingState();
+        }
+      });
+
       voterSearch.addEventListener('input', () => renderVoters(latestVoters));
 
       if (sessionStorage.getItem('adminToken')) {
+        fetchVotingState();
         loadResults().then((loaded) => {
           if (loaded) refreshTimer = setInterval(loadResults, refreshInterval);
         });

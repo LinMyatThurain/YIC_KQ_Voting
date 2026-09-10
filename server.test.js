@@ -224,6 +224,20 @@ test('accepts a complete vote through the HTTP API and blocks repeat submissions
   const { port } = server.address();
 
   try {
+    const startResponse = await fetch(`http://localhost:${port}/api/admin/voting`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${(await (await fetch(`http://localhost:${port}/api/admin/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'admin@yic' })
+        })).json()).token}`
+      },
+      body: JSON.stringify({ action: 'start' })
+    });
+    assert.equal(startResponse.status, 200);
+
     const firstResponse = await fetch(`http://localhost:${port}/api/votes`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -288,6 +302,22 @@ test('allows the test admin to submit repeated votes without changing normal vot
   const testAdminAuthorization = `Basic ${Buffer.from('test-admin:testadmin').toString('base64')}`;
 
   try {
+    const adminLogin = await fetch(`http://localhost:${port}/api/admin/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'admin@yic' })
+    });
+    const adminToken = (await adminLogin.json()).token;
+    const startResponse = await fetch(`http://localhost:${port}/api/admin/voting`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({ action: 'start' })
+    });
+    assert.equal(startResponse.status, 200);
+
     const payload = validVote('test-voter@example.com');
     const firstResponse = await fetch(`http://localhost:${port}/api/votes`, {
       method: 'POST',

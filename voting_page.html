@@ -122,6 +122,8 @@
 			const message = document.querySelector('#message');
 			const testAdminMode = Boolean(testAdminUsername && testAdminPassword);
 			let voteInputs = [];
+			let votingOpen = false;
+			let voteSubmitted = false;
 
 			if (!voterEmail && !testAdminMode) {
 				window.location.replace('index.html');
@@ -214,7 +216,7 @@
 			function updateSubmitState() {
 				const selections = getSelections();
 				const selectedCount = Object.values(selections).filter(Boolean).length;
-				submitVote.disabled = selectedCount !== 4;
+				submitVote.disabled = selectedCount !== 4 || !votingOpen || voteSubmitted;
 				selectedNote.textContent = selectedCount === 4
 					? 'All four candidates selected.'
 					: `${selectedCount} of 4 selections made.`;
@@ -263,6 +265,7 @@
 
 					message.textContent = 'Your four selections have been recorded. Thank you!';
 					selectedNote.textContent = 'Vote submitted successfully.';
+					voteSubmitted = true;
 					voteInputs.forEach((input) => { input.disabled = true; });
 					submitVote.disabled = true;
 					if (!testAdminMode) {
@@ -290,7 +293,66 @@
 				}
 			}
 
+			// Voting state handling and start animation
+			const votingOverlay = document.createElement('div');
+			votingOverlay.id = 'voting-overlay';
+			votingOverlay.style.cssText = 'position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(20,32,55,0.85);color:#fff;z-index:9999;flex-direction:column;';
+			votingOverlay.innerHTML = `
+				<div style="text-align:center">
+					<div id="voting-count" style="font-size:96px;font-weight:800;letter-spacing: -4px;margin-bottom:12px"></div>
+					<div style="font-size:20px;opacity:0.9">Voting starts now</div>
+				</div>
+			`;
+			document.body.appendChild(votingOverlay);
+
+			async function fetchVotingState() {
+				try {
+					const r = await fetch('/api/voting');
+					const json = await r.json();
+					if (json && typeof json.voting === 'boolean') {
+						if (!votingOpen && json.voting) startVotingCountdown();
+						votingOpen = json.voting;
+						updateVotingUI();
+					}
+				} catch (e) {
+					message.textContent = 'Unable to check voting status.';
+					message.className = 'message error';
+				}
+			}
+
+			function updateVotingUI() {
+				voteInputs.forEach((input) => { input.disabled = !votingOpen || voteSubmitted; });
+				updateSubmitState();
+				if (!votingOpen) {
+					message.textContent = 'Voting is currently closed.';
+					message.className = 'message error';
+				}
+			}
+
+			let countdownRunning = false;
+			async function startVotingCountdown() {
+				if (countdownRunning) return;
+				countdownRunning = true;
+				votingOverlay.style.display = 'flex';
+				const countEl = document.querySelector('#voting-count');
+				for (let i = 10; i >= 1; i--) {
+					countEl.textContent = i;
+					await new Promise((r) => setTimeout(r, 1000));
+				}
+				votingOverlay.style.display = 'none';
+				countdownRunning = false;
+				if (!votingOpen) return;
+				// enable submit after countdown if selections valid
+				updateSubmitState();
+				message.className = 'message';
+				message.textContent = 'Voting is now open. Good luck!';
+			};
+
+			// Poll voting state every 3 seconds
+			setInterval(fetchVotingState, 3000);
+			fetchVotingState();
+
 			loadCandidates();
-		</script>
+			</script>
 	</body>
 </html>

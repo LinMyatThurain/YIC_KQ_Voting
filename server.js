@@ -84,6 +84,20 @@ function createCandidatesTable(database) {
   `);
 }
 
+function createSettingsTable(database) {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+  database.prepare(`
+    INSERT INTO settings (key, value)
+    VALUES ('voting', 'false')
+    ON CONFLICT(key) DO NOTHING
+  `).run();
+}
+
 function seedCandidates(database) {
   if (database.prepare('SELECT COUNT(*) AS count FROM candidates').get().count > 0) return;
 
@@ -172,6 +186,7 @@ export function createVoteStore(databasePath = DATABASE_PATH) {
   const database = new Database(databasePath);
   database.pragma('journal_mode = WAL');
   createCandidatesTable(database);
+  createSettingsTable(database);
   seedCandidates(database);
   migrateVotesTable(database);
 
@@ -192,6 +207,16 @@ export function createVoteStore(databasePath = DATABASE_PATH) {
         ...candidate,
         active: Boolean(candidate.active)
       }));
+    },
+    getVotingState() {
+      return database.prepare("SELECT value FROM settings WHERE key = 'voting'").get().value === 'true';
+    },
+    setVotingState(enabled = false) {
+      database.prepare(`
+        INSERT INTO settings (key, value) VALUES ('voting', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `).run(enabled ? 'true' : 'false');
+      return enabled;
     },
     createCandidate(candidate = {}) {
       const name = String(candidate.name || '').trim();
@@ -549,6 +574,42 @@ export function createServer(store = process.env.DATABASE_URL ? createPostgresVo
       return;
     }
 
+    // Public voting state endpoint (used by voting page to know if voting is open)
+    if (request.method === 'GET' && url.pathname === '/api/voting') {
+      sendJson(response, 200, { voting: await store.getVotingState() });
+      return;
+    }
+
+    // Admin control to start/stop voting
+    if (request.method === 'POST' && url.pathname === '/api/admin/voting') {
+      if (!isAdminAuthorized(request)) {
+        response.writeHead(401, {
+          'WWW-Authenticate': 'Basic realm="Voting admin"',
+          'Access-Control-Allow-Origin': '*'
+        });
+        response.end(JSON.stringify({ error: 'Admin authentication required.' }));
+        return;
+      }
+      try {
+        const body = await readJson(request);
+        const action = String(body.action || '').toLowerCase();
+        if (action === 'start') {
+          await store.setVotingState(true);
+          sendJson(response, 200, { voting: true });
+          return;
+        }
+        if (action === 'stop') {
+          await store.setVotingState(false);
+          sendJson(response, 200, { voting: false });
+          return;
+        }
+        sendJson(response, 400, { error: 'Invalid action. Use "start" or "stop".' });
+      } catch (error) {
+        sendJson(response, 400, { error: error.message });
+      }
+      return;
+    }
+
     if (request.method === 'GET' && url.pathname === '/api/test-admin/verify') {
       if (!isTestAdminAuthorized(request)) {
         sendJson(response, 401, { error: 'Test admin authentication required.' });
@@ -585,6 +646,11 @@ export function createServer(store = process.env.DATABASE_URL ? createPostgresVo
 
     try {
       const isTestAdmin = isTestAdminAuthorized(request);
+      const votingOpen = await store.getVotingState();
+      if (!votingOpen && !isTestAdmin) {
+        sendJson(response, 403, { error: 'Voting is not open.' });
+        return;
+      }
       const result = await store.recordVote(await readJson(request), { allowRepeat: isTestAdmin });
       if (result.reason === 'invalid_request') {
         sendJson(response, 400, {
