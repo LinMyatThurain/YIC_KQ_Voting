@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Manage Candidates</title>
+    <style>
+      :root { --navy: #1c3345; --ink: #17202a; --muted: #66717c; --cream: #f4f1eb; --paper: #fff; --line: #e3e5e4; --gold: #c39446; --green: #267458; --red: #a03b35; }
+      * { box-sizing: border-box; }
+      body { margin: 0; color: var(--ink); background: var(--cream); font-family: Arial, sans-serif; }
+      header { padding: 28px clamp(20px, 6vw, 80px); color: #fff; background: var(--navy); }
+      .header-inner, main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; }
+      .header-inner { display: flex; align-items: end; justify-content: space-between; gap: 20px; }
+      h1, h2, h3, p { margin-top: 0; }
+      h1 { margin-bottom: 0; font-size: clamp(30px, 5vw, 52px); }
+      h2 { margin-bottom: 16px; font-size: 21px; }
+      h3 { margin: 0; font-size: 15px; }
+      .eyebrow { margin: 0 0 10px; color: var(--gold); font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+      main { padding: 34px 0 70px; }
+      .panel { margin-bottom: 22px; border: 1px solid var(--line); padding: 22px; background: var(--paper); border-radius: 10px; box-shadow: 0 5px 18px rgba(28,51,69,.04); }
+      input, select, button { min-height: 42px; border: 1px solid var(--line); padding: 0 12px; font: inherit; }
+      input, select { color: var(--ink); background: #fff; }
+      button { color: #fff; border-color: var(--navy); background: var(--navy); cursor: pointer; font-weight: 700; }
+      button:hover { background: #294a60; }
+      button:disabled { cursor: not-allowed; opacity: .55; }
+      .status { min-height: 20px; margin: 0 0 18px; color: var(--red); font-size: 13px; }
+      .status.success { color: var(--green); }
+      .back-button { display: inline-flex; align-items: center; min-height: 42px; border: 1px solid rgba(255,255,255,.45); padding: 0 14px; color: #fff; background: transparent; font: inherit; font-weight: 700; text-decoration: none; }
+      .back-button:hover { background: rgba(255,255,255,.12); }
+      .management { display: none; }
+      .management.visible { display: block; }
+      .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .stat { padding: 5px 10px; border-radius: 999px; color: var(--muted); background: #edf1f2; font-size: 12px; }
+      .candidate-form { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 12px; margin: 18px 0 0; }
+      .candidate-form .wide { grid-column: span 2; }
+      .candidate-form button { align-self: end; }
+      .file-field { display: flex; flex-direction: column; gap: 7px; }
+      .file-field label, .field-label { color: var(--muted); font-size: 12px; font-weight: 700; }
+      .file-field input { min-height: 42px; padding: 8px; }
+      .preview { display: flex; align-items: center; gap: 12px; min-height: 88px; margin-top: 14px; padding: 10px; border: 1px dashed var(--line); color: var(--muted); font-size: 12px; }
+      .preview img { width: 64px; height: 64px; object-fit: cover; }
+      .form-actions { display: flex; gap: 10px; align-items: end; }
+      .secondary { color: var(--navy); background: transparent; }
+      .secondary:hover { color: #fff; }
+      .remove-image { display: none; align-items: center; gap: 7px; margin-top: 10px; color: var(--muted); font-size: 12px; }
+      .remove-image.visible { display: flex; }
+      .remove-image input { min-height: auto; width: auto; }
+      .candidate-groups { display: grid; gap: 26px; margin-top: 26px; }
+      .candidate-list { display: grid; gap: 8px; margin-top: 12px; }
+      .candidate-item { display: grid; grid-template-columns: 58px minmax(0, 1fr) 110px 80px auto auto; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+      .candidate-item:last-child { border-bottom: 0; }
+      .candidate-item img, .image-fallback { width: 48px; height: 48px; object-fit: cover; background: var(--navy); }
+      .image-fallback { display: grid; place-items: center; color: #fff; font-weight: 700; }
+      .candidate-name { font-weight: 700; }
+      .candidate-meta { margin-top: 4px; color: var(--muted); font-size: 12px; }
+      .badge { width: fit-content; padding: 4px 8px; border-radius: 999px; color: var(--green); background: #e9f4ef; font-size: 11px; font-weight: 700; }
+      .badge.inactive { color: var(--red); background: #fff0ee; }
+      .action { min-height: 34px; padding: 0 10px; font-size: 12px; }
+      .delete { border-color: var(--red); background: var(--red); }
+      .delete:hover { background: #842e29; }
+      .empty { color: var(--muted); font-size: 13px; }
+      @media (max-width: 800px) {
+        .header-inner { align-items: stretch; flex-direction: column; }
+        .candidate-form { grid-template-columns: 1fr 1fr; }
+        .candidate-form .wide { grid-column: span 2; }
+        .candidate-item { grid-template-columns: 58px minmax(0, 1fr) auto auto; }
+        .candidate-item .category, .candidate-item .gender { display: none; }
+      }
+      @media (max-width: 560px) {
+        .form-actions { align-items: stretch; flex-direction: column; }
+        .candidate-form { display: flex; flex-direction: column; }
+        .candidate-form .wide { grid-column: auto; }
+        .candidate-item { grid-template-columns: 48px minmax(0, 1fr) auto; }
+        .candidate-item .action { grid-column: span 1; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="header-inner">
+        <div>
+          <p class="eyebrow">YIC Day Event 2026</p>
+          <h1>Manage candidates</h1>
+        </div>
+        <a class="back-button" href="admin.html">Back to admin panel</a>
+      </div>
+    </header>
+    <main>
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+
+      <section class="management" id="management">
+        <div class="panel">
+          <div class="panel-heading">
+            <h2 id="form-title">Add candidate</h2>
+            <span class="stat" id="candidate-count">0 candidates</span>
+          </div>
+          <form class="candidate-form" id="candidate-form">
+            <input id="candidate-name" placeholder="Candidate name" required>
+            <select id="candidate-category" required>
+              <option value="HND">HND</option>
+              <option value="IGCSE/GED">IGCSE / GED</option>
+            </select>
+            <select id="candidate-gender" required>
+              <option value="King">King</option>
+              <option value="Queen">Queen</option>
+            </select>
+            <input class="wide" id="candidate-subtitle" placeholder="Optional subtitle">
+            <div class="file-field">
+              <label for="candidate-image">Candidate image</label>
+              <input id="candidate-image" type="file" accept="image/*">
+            </div>
+            <div class="form-actions">
+              <button id="save-candidate" type="submit">Add candidate</button>
+              <button class="secondary" id="cancel-edit" type="button" hidden>Cancel edit</button>
+            </div>
+          </form>
+          <label class="remove-image" id="remove-image-label">
+            <input id="remove-image" type="checkbox">
+            Remove current image
+          </label>
+          <div class="preview" id="image-preview">Choose a local image to preview it here.</div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-heading"><h2>Candidate catalog</h2><span class="stat">Active candidates</span></div>
+          <div class="candidate-groups">
+            <section>
+              <h3>Active candidates</h3>
+              <div class="candidate-list" id="active-candidates"></div>
+            </section>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script>
+      const candidatesApiUrl = '/api/admin/candidates';
+      const status = document.querySelector('#status');
+      const management = document.querySelector('#management');
+      const candidateForm = document.querySelector('#candidate-form');
+      const formTitle = document.querySelector('#form-title');
+      const saveCandidate = document.querySelector('#save-candidate');
+      const cancelEdit = document.querySelector('#cancel-edit');
+      const imageInput = document.querySelector('#candidate-image');
+      const saveButton = candidateForm.querySelector('button[type="submit"]');
+      const imagePreview = document.querySelector('#image-preview');
+      const removeImageLabel = document.querySelector('#remove-image-label');
+      const removeImage = document.querySelector('#remove-image');
+      let candidates = [];
+      let editingCandidate = null;
+      let selectedImageDataUrl = '';
+
+      /*
+      function adminHeaders(json = false) {
+        const headers = { Authorization: `Bearer ${sessionStorage.getItem('adminToken') || ''}` };
+        if (json) headers['Content-Type'] = 'application/json';
+        return headers;
+      }
+      */
+      function adminHeaders(json = false) {
+        const headers = { Authorization: `Bearer ${sessionStorage.getItem('adminToken') || ''}` };
+        if (json) headers['Content-Type'] = 'application/json';
+        return headers;
+      }
+
+      function bearerHeaders(json = false) {
+        const headers = { Authorization: `Bearer ${sessionStorage.getItem('adminToken') || ''}` };
+        if (json) headers['Content-Type'] = 'application/json';
+        return headers;
+      }
+
+      function setStatus(message, success = false) {
+        status.textContent = message;
+        status.className = success ? 'status success' : 'status';
+      }
+
+      function initials(name) {
+        return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+      }
+
+      function showPreview(imageUrl, label = 'Choose a local image to preview it here.') {
+        imagePreview.replaceChildren();
+        if (!imageUrl) {
+          imagePreview.textContent = label;
+          return;
+        }
+        const image = document.createElement('img');
+        image.src = imageUrl;
+        image.alt = 'Candidate preview';
+        const text = document.createElement('span');
+        text.textContent = 'Selected image preview';
+        imagePreview.append(image, text);
+      }
+
+      function resetForm() {
+        editingCandidate = null;
+        selectedImageDataUrl = '';
+        candidateForm.reset();
+        formTitle.textContent = 'Add candidate';
+        saveCandidate.textContent = 'Add candidate';
+        cancelEdit.hidden = true;
+        removeImage.checked = false;
+        removeImageLabel.classList.remove('visible');
+        showPreview('');
+      }
+
+      function startEdit(candidate) {
+        editingCandidate = candidate;
+        document.querySelector('#candidate-name').value = candidate.name;
+        document.querySelector('#candidate-category').value = candidate.category;
+        document.querySelector('#candidate-gender').value = candidate.gender;
+        document.querySelector('#candidate-subtitle').value = candidate.subtitle || '';
+        imageInput.value = '';
+        selectedImageDataUrl = '';
+        formTitle.textContent = `Edit ${candidate.name}`;
+        saveCandidate.textContent = 'Save changes';
+        cancelEdit.hidden = false;
+        removeImage.checked = false;
+        removeImageLabel.classList.toggle('visible', Boolean(candidate.imageUrl));
+        showPreview(candidate.imageUrl, candidate.imageUrl ? 'Current image. Choose a new local image to replace it.' : '');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+
+      function renderCandidateList(elementId, entries) {
+        const list = document.querySelector(`#${elementId}`);
+        if (!entries.length) {
+          list.className = 'candidate-list empty';
+          list.textContent = 'No active candidates.';
+          return;
+        }
+        list.className = 'candidate-list';
+        list.replaceChildren(...entries.map((candidate) => {
+          const item = document.createElement('div');
+          item.className = 'candidate-item';
+          if (candidate.imageUrl) {
+            const image = document.createElement('img');
+            image.src = candidate.imageUrl;
+            image.alt = candidate.name;
+            item.appendChild(image);
+          } else {
+            const fallback = document.createElement('span');
+            fallback.className = 'image-fallback';
+            fallback.textContent = initials(candidate.name);
+            item.appendChild(fallback);
+          }
+          const details = document.createElement('div');
+          const name = document.createElement('div');
+          name.className = 'candidate-name';
+          name.textContent = candidate.name;
+          const meta = document.createElement('div');
+          meta.className = 'candidate-meta';
+          meta.textContent = candidate.subtitle || 'No subtitle';
+          details.append(name, meta);
+          const category = document.createElement('span');
+          category.className = 'category';
+          category.textContent = candidate.category;
+          const gender = document.createElement('span');
+          gender.className = 'gender';
+          gender.textContent = candidate.gender;
+          const badge = document.createElement('span');
+          badge.className = 'badge';
+          badge.textContent = 'Active';
+          const edit = document.createElement('button');
+          edit.className = 'action';
+          edit.type = 'button';
+          edit.textContent = 'Edit';
+          edit.addEventListener('click', () => startEdit(candidate));
+          const remove = document.createElement('button');
+          remove.className = 'action delete';
+          remove.type = 'button';
+          remove.textContent = 'Delete';
+          remove.title = 'Delete candidate';
+          remove.addEventListener('click', () => deleteCandidate(candidate));
+          item.append(details, category, gender, badge, edit, remove);
+          return item;
+        }));
+      }
+
+      function renderCandidates() {
+        const active = candidates.filter((candidate) => candidate.active);
+        document.querySelector('#candidate-count').textContent = `${candidates.length} candidates`;
+        renderCandidateList('active-candidates', active);
+      }
+
+      async function loadCandidates() {
+        const response = await fetch(candidatesApiUrl, { headers: bearerHeaders() });
+        const result = await response.json();
+        if (response.status === 401) {
+          sessionStorage.removeItem('adminToken');
+          management.classList.remove('visible');
+          throw new Error('Admin session expired. Return to the registration form to sign in again.');
+        }
+        if (!response.ok) throw new Error(result.error || 'Unable to load candidates.');
+        candidates = result;
+        renderCandidates();
+      }
+
+      async function deleteCandidate(candidate) {
+        if (!window.confirm(`Delete ${candidate.name}?`)) return;
+        const response = await fetch(`${candidatesApiUrl}/${candidate.id}`, {
+          method: 'DELETE',
+          headers: bearerHeaders()
+        });
+        if (!response.ok) {
+          const result = await response.json();
+          throw new Error(result.error || 'Unable to delete candidate.');
+        }
+        if (editingCandidate && editingCandidate.id === candidate.id) resetForm();
+        await loadCandidates();
+        setStatus(`${candidate.name} was deleted.`, true);
+      }
+
+      imageInput.addEventListener('change', () => {
+        const [file] = imageInput.files;
+        if (!file) {
+          selectedImageDataUrl = '';
+          showPreview(editingCandidate && !removeImage.checked ? editingCandidate.imageUrl : '');
+          return;
+        }
+        if (!file.type.startsWith('image/')) {
+          imageInput.value = '';
+          setStatus('Please choose an image file.');
+          return;
+        }
+        saveButton.disabled = true;
+        setStatus('Reading image...');
+        const reader = new FileReader();
+        reader.addEventListener('load', () => {
+          selectedImageDataUrl = String(reader.result);
+          removeImage.checked = false;
+          showPreview(selectedImageDataUrl, 'Selected local image.');
+          saveButton.disabled = false;
+          setStatus('');
+        });
+        reader.addEventListener('error', () => {
+          selectedImageDataUrl = '';
+          saveButton.disabled = false;
+          setStatus('Unable to read the selected image.');
+        }, { once: true });
+        reader.readAsDataURL(file);
+      });
+
+      removeImage.addEventListener('change', () => {
+        if (removeImage.checked) {
+          imageInput.value = '';
+          selectedImageDataUrl = '';
+          showPreview('', 'The current image will be removed when you save.');
+        } else if (editingCandidate) {
+          showPreview(editingCandidate.imageUrl, 'Current image. Choose a new local image to replace it.');
+        }
+      });
+
+      candidateForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (saveButton.disabled) return;
+        setStatus('');
+        try {
+          const payload = {
+            name: document.querySelector('#candidate-name').value,
+            category: document.querySelector('#candidate-category').value,
+            gender: document.querySelector('#candidate-gender').value,
+            subtitle: document.querySelector('#candidate-subtitle').value
+          };
+          if (selectedImageDataUrl) payload.imageUrl = selectedImageDataUrl;
+          else if (editingCandidate && removeImage.checked) payload.imageUrl = '';
+          const response = await fetch(
+            editingCandidate ? `${candidatesApiUrl}/${editingCandidate.id}` : candidatesApiUrl,
+            {
+              method: editingCandidate ? 'PATCH' : 'POST',
+              headers: bearerHeaders(true),
+              body: JSON.stringify(payload)
+            }
+          );
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || 'Unable to save candidate.');
+          resetForm();
+          await loadCandidates();
+          setStatus('Candidate saved successfully.', true);
+        } catch (error) {
+          setStatus(error.message);
+        }
+      });
+
+      cancelEdit.addEventListener('click', resetForm);
+
+      if (sessionStorage.getItem('adminToken')) {
+        loadCandidates()
+          .then(() => management.classList.add('visible'))
+          .catch((error) => setStatus(error.message));
+      } else {
+        setStatus('Sign in through the registration form to manage candidates.');
+      }
+    </script>
+  </body>
+</html>
