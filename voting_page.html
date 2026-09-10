@@ -293,7 +293,7 @@
 				}
 			}
 
-			// Voting state handling and start animation
+			// Voting state handling and synchronized start animation
 			const votingOverlay = document.createElement('div');
 			votingOverlay.id = 'voting-overlay';
 			votingOverlay.style.cssText = 'position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(20,32,55,0.85);color:#fff;z-index:9999;flex-direction:column;';
@@ -305,48 +305,107 @@
 			`;
 			document.body.appendChild(votingOverlay);
 
+			let hasInitialVotingState = false;
+			let latestStateVersion = -1;
+			let latestRequestId = 0;
+			let appliedRequestId = 0;
+			let countdownTimer = null;
+			let countdownRunId = 0;
+
+			function setVotingControls(enabled) {
+				voteInputs.forEach((input) => { input.disabled = !enabled || voteSubmitted; });
+				updateSubmitState();
+			}
+
+			function cancelVotingCountdown() {
+				countdownRunId += 1;
+				if (countdownTimer) {
+					clearInterval(countdownTimer);
+					countdownTimer = null;
+				}
+				votingOverlay.style.display = 'none';
+			}
+
+			function finishVotingOpen() {
+				cancelVotingCountdown();
+				votingOpen = true;
+				setVotingControls(true);
+				message.className = 'message';
+				message.textContent = 'Voting is now open. Good luck!';
+			}
+
+			function startVotingCountdown(startedAt) {
+				const startedAtMs = Date.parse(startedAt);
+				const remaining = () => Math.max(0, 10000 - (Date.now() - startedAtMs));
+				if (!Number.isFinite(startedAtMs) || remaining() <= 0) {
+					finishVotingOpen();
+					return;
+				}
+
+				cancelVotingCountdown();
+				const runId = countdownRunId;
+				votingOpen = false;
+				setVotingControls(false);
+				votingOverlay.style.display = 'flex';
+				const countEl = document.querySelector('#voting-count');
+				const update = () => {
+					if (runId !== countdownRunId) return;
+					const remainingMs = remaining();
+					if (remainingMs <= 0) {
+						finishVotingOpen();
+						return;
+					}
+					countEl.textContent = Math.ceil(remainingMs / 1000);
+				};
+				update();
+				countdownTimer = setInterval(update, 100);
+			}
+
+			function applyVotingState(state, requestId) {
+				if (requestId < appliedRequestId || state.stateVersion < latestStateVersion) return;
+				if (state.stateVersion === latestStateVersion && requestId < appliedRequestId) return;
+				appliedRequestId = requestId;
+				latestStateVersion = state.stateVersion;
+
+				const wasInitial = !hasInitialVotingState;
+				const wasOpen = votingOpen;
+				hasInitialVotingState = true;
+				if (!state.voting) {
+					votingOpen = false;
+					cancelVotingCountdown();
+					setVotingControls(false);
+					message.className = 'message error';
+					message.textContent = 'Voting is currently closed.';
+					return;
+				}
+
+				votingOpen = true;
+				if (wasInitial || wasOpen || !state.startedAt) {
+					cancelVotingCountdown();
+					setVotingControls(true);
+					message.className = 'message';
+					message.textContent = 'Voting is now open. Good luck!';
+					return;
+				}
+				startVotingCountdown(state.startedAt);
+			}
+
 			async function fetchVotingState() {
+				const requestId = ++latestRequestId;
 				try {
 					const r = await fetch('/api/voting');
 					const json = await r.json();
-					if (json && typeof json.voting === 'boolean') {
-						if (!votingOpen && json.voting) startVotingCountdown();
-						votingOpen = json.voting;
-						updateVotingUI();
+					if (!r.ok || typeof json.voting !== 'boolean'
+						|| !Number.isInteger(json.stateVersion)) {
+						throw new Error('Unable to check voting status.');
 					}
+					applyVotingState(json, requestId);
 				} catch (e) {
 					message.textContent = 'Unable to check voting status.';
 					message.className = 'message error';
+					setVotingControls(false);
 				}
 			}
-
-			function updateVotingUI() {
-				voteInputs.forEach((input) => { input.disabled = !votingOpen || voteSubmitted; });
-				updateSubmitState();
-				if (!votingOpen) {
-					message.textContent = 'Voting is currently closed.';
-					message.className = 'message error';
-				}
-			}
-
-			let countdownRunning = false;
-			async function startVotingCountdown() {
-				if (countdownRunning) return;
-				countdownRunning = true;
-				votingOverlay.style.display = 'flex';
-				const countEl = document.querySelector('#voting-count');
-				for (let i = 10; i >= 1; i--) {
-					countEl.textContent = i;
-					await new Promise((r) => setTimeout(r, 1000));
-				}
-				votingOverlay.style.display = 'none';
-				countdownRunning = false;
-				if (!votingOpen) return;
-				// enable submit after countdown if selections valid
-				updateSubmitState();
-				message.className = 'message';
-				message.textContent = 'Voting is now open. Good luck!';
-			};
 
 			// Poll voting state every 3 seconds
 			setInterval(fetchVotingState, 3000);

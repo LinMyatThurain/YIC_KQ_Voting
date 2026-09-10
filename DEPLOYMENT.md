@@ -10,7 +10,7 @@ This deployment gives the voting app a stable Render URL and stores votes and ca
 4. Copy the full PostgreSQL connection string. Do not commit it or send it in chat.
 
 The app creates its `votes` and `candidates` tables and seeds the candidate catalog on its first connection.
-It also creates a `settings` table used to persist whether voting is currently open or closed.
+It also creates a `settings` table used to persist whether voting is currently open or closed, the server start timestamp, and a state version for synchronizing open pages.
 
 ## 2. Put the project in GitHub
 
@@ -59,7 +59,9 @@ Open the Render URL from a phone using mobile data and verify:
 - admin access works with `admin@yic`;
 - candidate changes appear in the catalog;
 - the admin panel can start and stop voting;
-- voters see a 10-second countdown when voting starts, and submissions are blocked while voting is closed;
+- pages already open when voting starts see a synchronized 10-second countdown;
+- pages opened after voting has started show the voting form immediately;
+- submissions are blocked while voting is closed;
 - results show the submitted vote.
 
 ## 5. Updates
